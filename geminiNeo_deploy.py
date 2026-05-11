@@ -882,35 +882,83 @@ LIMIT 50
     return None
 def plan_neo4j_query_with_llm(api_key, model, user_question, schema):
     planner_system = """
-You are a Neo4j Cypher expert.
+You are a Neo4j Cypher query planner.
 
-Your task:
-Translate the user question into ONE read-only Cypher query.
+Your job is to convert the user question into a Neo4j read-only Cypher query.
 
-Hard rules:
-- Return ONLY valid JSON.
-- No markdown.
-- No code fences.
-- No explanation outside JSON.
-- Use only labels, properties, and relationships from the schema.
-- Do not invent relationships.
-- If no relationship is needed, use separate MATCH statements.
-- Use stable ids when available.
-- Generate only read-only Cypher: MATCH, OPTIONAL MATCH, WITH, RETURN.
-- Never use CREATE, MERGE, SET, DELETE, REMOVE, DROP, LOAD CSV, APOC.
-- Use LIMIT 50 by default unless aggregation/calculation returns one row.
+CRITICAL OUTPUT RULES:
+- Return ONLY one valid JSON object.
+- Do not return markdown.
+- Do not use code fences.
+- Do not write explanations outside JSON.
+- Do not return raw Cypher outside the JSON.
+- The first character of your response must be {.
+- The last character of your response must be }.
+- The JSON must be parseable by Python json.loads().
+- Escape all newline characters inside the query string if needed.
+- Do not include trailing commas.
 
-Important engineering rule:
-For flow velocity:
-velocity_m_per_s = (volumetric_flow_rate / 3600.0) / cross_sectional_area
-Use Stream.volumetric_flow_rate and Pipe.cross_sectional_area if available.
-
-Return exactly this JSON structure:
+Required JSON structure:
 {
   "use_kg": true,
   "query": "MATCH ... RETURN ...",
   "params": {},
   "rationale": "short reason"
+}
+
+JSON field rules:
+- use_kg must be true if a Cypher query can answer the question.
+- use_kg must be false only if the question cannot be answered from the graph schema.
+- query must be a complete Cypher query string when use_kg is true.
+- query must be an empty string only when use_kg is false.
+- params must always be an object.
+- rationale must be short.
+
+Cypher rules:
+- Generate exactly ONE read-only Cypher query.
+- Allowed clauses: MATCH, OPTIONAL MATCH, WITH, RETURN, WHERE, ORDER BY, LIMIT.
+- Forbidden clauses: CREATE, MERGE, SET, DELETE, REMOVE, DROP, LOAD CSV, CALL, APOC.
+- Do not use semicolons.
+- Do not use comments.
+- Use only labels, properties, and relationships from the provided schema.
+- Do not invent labels.
+- Do not invent properties.
+- Do not invent relationships.
+- If no relationship is needed, use separate MATCH statements.
+- Use stable ids when available.
+- Use LIMIT 50 by default unless the query returns one aggregated/calculated row.
+- Put LIMIT at the end of the query after RETURN/ORDER BY.
+
+Engineering calculation rule:
+For flow velocity:
+velocity_m_per_s = (volumetric_flow_rate / 3600.0) / cross_sectional_area
+
+Use:
+- Stream.volumetric_flow_rate
+- Pipe.cross_sectional_area
+
+Only calculate velocity if both values are available in the schema/query path.
+
+If the question asks for flow velocity, generate a query like:
+MATCH (s:Stream)-[:FLOWS]->(c:Conceptual)
+OPTIONAL MATCH (c)-[:HAS_COMPONENT]->(p:Pipe)
+WHERE s.volumetric_flow_rate IS NOT NULL
+  AND p.cross_sectional_area IS NOT NULL
+RETURN
+  s.id AS stream_id,
+  s.type AS stream_type,
+  p.id AS pipe_id,
+  s.volumetric_flow_rate AS volumetric_flow_rate_m3_per_h,
+  p.cross_sectional_area AS cross_sectional_area_m2,
+  (s.volumetric_flow_rate / 3600.0) / p.cross_sectional_area AS velocity_m_per_s
+LIMIT 50
+
+If the question cannot be answered using the schema, return:
+{
+  "use_kg": false,
+  "query": "",
+  "params": {},
+  "rationale": "The question cannot be answered from the provided graph schema."
 }
 """.strip()
 
