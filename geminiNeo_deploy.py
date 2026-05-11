@@ -101,9 +101,9 @@ except ValueError:
     shared_temp = 1.0
 
 try:
-    shared_max_tokens = int(get_config_value("LLM_MAX_OUTPUT_TOKENS", "512"))
+    shared_max_tokens = int(get_config_value("LLM_MAX_OUTPUT_TOKENS", "2048"))
 except ValueError:
-    shared_max_tokens = 512
+    shared_max_tokens = 2048
 
 
 # ============================================================
@@ -1172,40 +1172,38 @@ def answer_from_results(
     answer_prompt = f"""
 You are answering a thesis-research question about {db_name}.
 
-You will receive:
-- schema
-- query plan
-- generated query
-- query results
-- execution error
-
 Your job:
 Explain the query result in plain English so an engineer or IT reader can understand what the result means.
 
 Rules:
+- Start directly with the actual answer.
 - Do not start with generic phrases like:
   "Based on the provided query results"
   "Here are the details"
   "The query returned"
-- Start directly with the actual answer.
-- If the result contains numbers, explain what each number means.
-- If the result compares values, explain the comparison clearly.
-- If the result contains IDs, explain what object each ID refers to.
-- If the result contains a boolean condition, explain whether the condition is true or false and why.
 - Use only the query results as factual source.
-- Do not invent anything not present in schema or results.
+- Do not invent anything not present in the schema or results.
 - If results are empty, say exactly: The query returned no rows.
 - If there is an execution error, explain the error clearly.
-
-Answer style:
-- Plain English.
-- Short but complete.
-- No unnecessary intro sentence.
-- No bullet list unless there are multiple rows.
-- Mention the generated query result values explicitly.
+- If the result contains numbers, explain what each number means.
+- If the result contains IDs, explain what object each ID refers to.
+- If the result contains null, None, empty, or placeholder values, say that this row is incomplete.
+- If multiple rows are returned, use bullet points.
+- Finish the answer completely.
+- Do not stop mid-sentence.
+- Keep the answer short but complete.
 
 User question:
 {user_question}
+
+Generated query:
+{query_used}
+
+Query results:
+{json.dumps(results, ensure_ascii=False, indent=2)}
+
+Execution error:
+{execution_error}
 """
 
     context_payload = {
@@ -1314,7 +1312,7 @@ with tab1:
 
                 if results is not None:
                     if results:
-                        st.dataframe(pd.DataFrame(results).head(50), use_container_width=True)
+                        st.dataframe(pd.DataFrame(results).head(50), width="stretch")
                     else:
                         st.info("Query returned no rows.")
 
