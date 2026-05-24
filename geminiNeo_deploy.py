@@ -985,7 +985,7 @@ Return only the JSON object.
         prompt=planner_prompt,
         system=planner_system,
         temperature=0.0,
-        max_tokens=2048,
+        max_tokens=4096,
         response_mime_type="application/json",
         response_schema={
             "type": "object",
@@ -1003,16 +1003,57 @@ Return only the JSON object.
     try:
         plan = extract_json(raw)
     except Exception:
-        fallback = fallback_neo4j_plan(user_question)
-        if fallback:
-            return fallback, raw
+        repaired_raw = chat_with_gemini(
+            api_key=api_key,
+            model=model,
+            prompt=f"""
+    The following model output is supposed to be a JSON object with this structure:
 
-        return {
-            "use_kg": False,
-            "query": "",
-            "params": {},
-            "rationale": "Planner returned invalid or truncated JSON."
-        }, raw
+    {{
+    "use_kg": true,
+    "query": "MATCH ... RETURN ...",
+    "params": {{}},
+    "rationale": "short reason"
+    }}
+
+    Repair it into valid JSON only.
+    Do not change the Cypher meaning.
+    Do not add markdown.
+    Do not explain.
+
+    BROKEN OUTPUT:
+    {raw}
+    """,
+            system="Return only valid JSON. No markdown. No explanation.",
+            temperature=0.0,
+            max_tokens=4096,
+            response_mime_type="application/json",
+            response_schema={
+                "type": "object",
+                "properties": {
+                    "use_kg": {"type": "boolean"},
+                    "query": {"type": "string"},
+                    "params": {"type": "object"},
+                    "rationale": {"type": "string"}
+                },
+                "required": ["use_kg", "query", "params", "rationale"]
+            }
+        )
+
+        try:
+            plan = extract_json(repaired_raw)
+            raw = raw + "\n\n--- REPAIRED JSON ---\n\n" + repaired_raw
+        except Exception:
+            fallback = fallback_neo4j_plan(user_question)
+            if fallback:
+                return fallback, raw
+
+            return {
+                "use_kg": False,
+                "query": "",
+                "params": {},
+                "rationale": "Planner returned invalid or truncated JSON even after repair."
+            }, raw
 
     plan.setdefault("use_kg", False)
     plan.setdefault("query", "")
