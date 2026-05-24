@@ -45,6 +45,11 @@ def get_config_value(name: str, default: str = "", aliases: list[str] | None = N
             # st.secrets may not be available outside Streamlit runtime
             pass
 
+    for key in keys:
+        value = os.getenv(key)
+        if value and value.strip():
+            return value.strip()
+        
     return default
 
 
@@ -981,7 +986,17 @@ Return only the JSON object.
         system=planner_system,
         temperature=0.0,
         max_tokens=2048,
-        response_mime_type="application/json"
+        response_mime_type="application/json",
+        response_schema={
+            "type": "object",
+            "properties": {
+                "use_kg": {"type": "boolean"},
+                "query": {"type": "string"},
+                "params": {"type": "object"},
+                "rationale": {"type": "string"}
+            },
+            "required": ["use_kg", "query", "params", "rationale"]
+        }
     )
 
     fallback = None
@@ -1252,7 +1267,7 @@ with tab1:
     with col1:
         show_schema = st.checkbox("Show Neo4j schema", value=False, key="neo4j_show_schema")
     with col2:
-        show_debug = st.checkbox("Show debug", value=True, key="neo4j_show_debug")
+        show_debug = st.checkbox("Show debug", value=False, key="neo4j_show_debug")
 
     if st.button("Send"):
         try:
